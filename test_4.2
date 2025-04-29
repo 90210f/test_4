@@ -1,0 +1,245 @@
+import os
+import sqlite3
+import sys
+from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout,
+                             QLabel, QTextEdit, QPushButton, QTableWidget,
+                             QTableWidgetItem, QHeaderView, QMessageBox,
+                             QInputDialog, QLineEdit, QSpinBox)
+from PyQt5.QtCore import Qt
+
+class NoteApp(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.db_connect()
+        self.init_ui()
+        self.load_notes()
+
+    def db_connect(self):
+        self.con = sqlite3.connect("notes.db")
+        self.cursor = self.con.cursor()
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS notes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                text TEXT,
+                priority INTEGER DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        self.con.commit()
+
+    def init_ui(self):
+        self.setWindowTitle("Менеджер заметок")
+        self.setGeometry(100, 100, 1200, 600)
+        self.setStyleSheet("""
+            QWidget {
+                font-size: 14px;
+            }
+            QPushButton {
+                padding: 5px;
+                min-width: 100px;
+            }
+            QTableWidget {
+                selection-background-color: #d4e6ff;
+            }
+        """)
+
+        main_layout = QVBoxLayout()
+        main_layout.setSpacing(15)
+
+        # Заголовок
+        title_label = QLabel("Мои заметки")
+        title_label.setAlignment(Qt.AlignCenter)
+        title_label.setStyleSheet("font-size: 18px; font-weight: bold;")
+        main_layout.addWidget(title_label)
+
+        # Таблица заметок
+        self.table = QTableWidget()
+        self.table.setColumnCount(5)
+        self.table.setHorizontalHeaderLabels(["ID", "Заметка", "Приоритет", "Дата создания", "Действия"])
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.table.setColumnWidth(0, 60)
+        self.table.setColumnWidth(2, 100)
+        self.table.setColumnWidth(3, 150)
+        self.table.setColumnWidth(4, 200)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setSelectionBehavior(QTableWidget.SelectRows)
+        main_layout.addWidget(self.table)
+
+        # Панель управления
+        control_panel = QHBoxLayout()
+        control_panel.setSpacing(10)
+
+        self.add_button = QPushButton("Добавить")
+        self.add_button.setStyleSheet("background-color: #4CAF50; color: white;")
+        self.add_button.clicked.connect(self.show_add_dialog)
+        control_panel.addWidget(self.add_button)
+
+        self.edit_button = QPushButton("Изменить")
+        self.edit_button.setStyleSheet("background-color: #2196F3; color: white;")
+        self.edit_button.clicked.connect(self.edit_note)
+        control_panel.addWidget(self.edit_button)
+
+        self.refresh_button = QPushButton("Обновить")
+        self.refresh_button.setStyleSheet("background-color: #FFC107; color: black;")
+        self.refresh_button.clicked.connect(self.load_notes)
+        control_panel.addWidget(self.refresh_button)
+
+        main_layout.addLayout(control_panel)
+        self.setLayout(main_layout)
+
+    def add_table_row(self, note_id, text, priority, created_at):
+        row_position = self.table.rowCount()
+        self.table.insertRow(row_position)
+
+        self.table.setItem(row_position, 0, QTableWidgetItem(str(note_id)))
+        self.table.setItem(row_position, 1, QTableWidgetItem(text))
+        self.table.setItem(row_position, 2, QTableWidgetItem(str(priority)))
+        self.table.setItem(row_position, 3, QTableWidgetItem(created_at))
+
+        # Кнопки действий
+        action_layout = QHBoxLayout()
+        action_widget = QWidget()
+        
+        edit_btn = QPushButton("✏️")
+        edit_btn.setToolTip("Редактировать")
+        edit_btn.setStyleSheet("padding: 2px; min-width: 30px;")
+        edit_btn.clicked.connect(lambda: self.edit_note(row_position))
+        action_layout.addWidget(edit_btn)
+
+        delete_btn = QPushButton("🗑️")
+        delete_btn.setToolTip("Удалить")
+        delete_btn.setStyleSheet("padding: 2px; min-width: 30px;")
+        delete_btn.clicked.connect(lambda: self.delete_note(row_position))
+        action_layout.addWidget(delete_btn)
+
+        action_widget.setLayout(action_layout)
+        self.table.setCellWidget(row_position, 4, action_widget)
+
+    def load_notes(self):
+        self.table.setRowCount(0)
+        self.cursor.execute("SELECT id, text, priority, datetime(created_at, 'localtime') FROM notes ORDER BY priority DESC, created_at DESC")
+        notes = self.cursor.fetchall()
+        for note in notes:
+            self.add_table_row(note[0], note[1], note[2], note[3])
+
+    def show_add_dialog(self):
+        dialog = QWidget()
+        dialog.setWindowTitle("Добавить заметку")
+        dialog.setFixedSize(400, 200)
+        
+        layout = QVBoxLayout()
+        
+        text_edit = QTextEdit()
+        text_edit.setPlaceholderText("Введите текст заметки...")
+        layout.addWidget(text_edit)
+        
+        priority_layout = QHBoxLayout()
+        priority_layout.addWidget(QLabel("Приоритет:"))
+        
+        priority_spin = QSpinBox()
+        priority_spin.setRange(1, 5)
+        priority_spin.setValue(3)
+        priority_layout.addWidget(priority_spin)
+        layout.addLayout(priority_layout)
+        
+        button_layout = QHBoxLayout()
+        save_button = QPushButton("Сохранить")
+        save_button.clicked.connect(lambda: self.add_note(text_edit.toPlainText(), priority_spin.value()))
+        save_button.clicked.connect(dialog.close)
+        button_layout.addWidget(save_button)
+        
+        cancel_button = QPushButton("Отмена")
+        cancel_button.clicked.connect(dialog.close)
+        button_layout.addWidget(cancel_button)
+        
+        layout.addLayout(button_layout)
+        dialog.setLayout(layout)
+        dialog.exec_()
+
+    def add_note(self, text, priority):
+        if not text.strip():
+            QMessageBox.warning(self, "Ошибка", "Текст заметки не может быть пустым!")
+            return
+            
+        self.cursor.execute("INSERT INTO notes (text, priority) VALUES (?, ?)", (text, priority))
+        self.con.commit()
+        self.load_notes()
+        QMessageBox.information(self, "Успех", "Заметка успешно добавлена!")
+
+    def edit_note(self, row=None):
+        if row is None:
+            row = self.table.currentRow()
+        
+        if row == -1:
+            QMessageBox.warning(self, "Ошибка", "Выберите заметку для редактирования!")
+            return
+
+        note_id = int(self.table.item(row, 0).text())
+        old_text = self.table.item(row, 1).text()
+        old_priority = int(self.table.item(row, 2).text())
+
+        dialog = QWidget()
+        dialog.setWindowTitle("Редактировать заметку")
+        dialog.setFixedSize(400, 200)
+        
+        layout = QVBoxLayout()
+        
+        text_edit = QTextEdit()
+        text_edit.setPlainText(old_text)
+        layout.addWidget(text_edit)
+        
+        priority_layout = QHBoxLayout()
+        priority_layout.addWidget(QLabel("Приоритет:"))
+        
+        priority_spin = QSpinBox()
+        priority_spin.setRange(1, 5)
+        priority_spin.setValue(old_priority)
+        priority_layout.addWidget(priority_spin)
+        layout.addLayout(priority_layout)
+        
+        button_layout = QHBoxLayout()
+        save_button = QPushButton("Сохранить")
+        save_button.clicked.connect(lambda: self.update_note(note_id, text_edit.toPlainText(), priority_spin.value()))
+        save_button.clicked.connect(dialog.close)
+        button_layout.addWidget(save_button)
+        
+        cancel_button = QPushButton("Отмена")
+        cancel_button.clicked.connect(dialog.close)
+        button_layout.addWidget(cancel_button)
+        
+        layout.addLayout(button_layout)
+        dialog.setLayout(layout)
+        dialog.exec_()
+
+    def update_note(self, note_id, text, priority):
+        if not text.strip():
+            QMessageBox.warning(self, "Ошибка", "Текст заметки не может быть пустым!")
+            return
+            
+        self.cursor.execute("UPDATE notes SET text = ?, priority = ? WHERE id = ?", 
+                          (text, priority, note_id))
+        self.con.commit()
+        self.load_notes()
+        QMessageBox.information(self, "Успех", "Заметка успешно обновлена!")
+
+    def delete_note(self, row):
+        reply = QMessageBox.question(self, "Подтверждение", 
+                                   "Вы уверены, что хотите удалить эту заметку?",
+                                   QMessageBox.Yes | QMessageBox.No)
+        
+        if reply == QMessageBox.Yes:
+            note_id = int(self.table.item(row, 0).text())
+            self.cursor.execute("DELETE FROM notes WHERE id = ?", (note_id,))
+            self.con.commit()
+            self.load_notes()
+            QMessageBox.information(self, "Успех", "Заметка успешно удалена!")
+
+    def closeEvent(self, event):
+        self.con.close()
+        event.accept()
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    window = NoteApp()
+    window.show()
+    sys.exit(app.exec_())
