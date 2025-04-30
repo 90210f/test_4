@@ -1,183 +1,97 @@
-import sys
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
-                             QHBoxLayout, QListWidget, QPushButton, QLineEdit, 
-                             QTextEdit, QLabel, QMessageBox)
-from PyQt5.QtCore import Qt
+import os
 import sqlite3
+import sys
+from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout,
+                             QLabel, QTextEdit, QPushButton,
+                             QFileDialog)
 
-class NotesApp(QMainWindow):
-    def init(self):
-        super().init()
-        self.setWindowTitle("Менеджер заметок")
-        self.setGeometry(100, 100, 800, 600)
-        
-        # Инициализация базы данных
-        self.init_db()
-        
-        # Создание виджетов
-        self.create_widgets()
-        
-        # Настройка layout
-        self.setup_layout()
-        
-        # Загрузка заметок
-        self.load_notes()
-        
-    def init_db(self):
-        """Инициализация базы данных SQLite"""
-        self.conn = sqlite3.connect('notes.db')
-        self.cursor = self.conn.cursor()
-        
-        # Создание таблицы, если она не существует
-        self.cursor.execute('''
-            CREATE TABLE IF NOT EXISTS notes (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                title TEXT NOT NULL,
-                content TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-        self.conn.commit()
-    
-    def create_widgets(self):
-        """Создание всех виджетов интерфейса"""
-        # Список заметок
-        self.notes_list = QListWidget()
-        self.notes_list.itemClicked.connect(self.show_note)
-        
-        # Кнопки управления
-        self.create_btn = QPushButton("Создать заметку")
-        self.create_btn.clicked.connect(self.create_note)
-        
-        self.delete_btn = QPushButton("Удалить заметку")
-        self.delete_btn.clicked.connect(self.delete_note)
-        
-        self.update_btn = QPushButton("Обновить заметку")
-        self.update_btn.clicked.connect(self.update_note)
-        
-        # Поля для редактирования
-        self.title_label = QLabel("Заголовок:")
-        self.title_input = QLineEdit()
-        
-        self.content_label = QLabel("Содержание:")
-        self.content_input = QTextEdit()
-    
-    def setup_layout(self):
-        """Настройка layout приложения"""
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
-        
-        # Основные layout
-        main_layout = QHBoxLayout()
-        left_layout = QVBoxLayout()
-        right_layout = QVBoxLayout()
-        
-        # Добавление виджетов в левый layout
-        left_layout.addWidget(QLabel("Список заметок:"))
-        left_layout.addWidget(self.notes_list)
-        left_layout.addWidget(self.create_btn)
-        left_layout.addWidget(self.delete_btn)
-        
-        # Добавление виджетов в правый layout
-        right_layout.addWidget(self.title_label)
-        right_layout.addWidget(self.title_input)
-        right_layout.addWidget(self.content_label)
-        right_layout.addWidget(self.content_input)
-        right_layout.addWidget(self.update_btn)
-        
-        # Добавление layout в основной layout
-        main_layout.addLayout(left_layout, 1)
-        main_layout.addLayout(right_layout, 2)
-        
-        central_widget.setLayout(main_layout)
-    
-    def load_notes(self):
-        """Загрузка списка заметок из базы данных"""
-        self.notes_list.clear()
-        self.cursor.execute("SELECT id, title FROM notes ORDER BY created_at DESC")
-        notes = self.cursor.fetchall()
-        
-        for note_id, title in notes:
-            self.notes_list.addItem(f"{note_id}: {title}")
-    
-    def show_note(self, item):
-        """Отображение выбранной заметки"""
-        note_id = int(item.text().split(":")[0])
-        
-        self.cursor.execute("SELECT title, content FROM notes WHERE id=?", (note_id,))
-        title, content = self.cursor.fetchone()
-        
-        self.title_input.setText(title)
-        self.content_input.setText(content)
-        self.current_note_id = note_id
-    
-    def create_note(self):
-        """Создание новой заметки"""
-        self.title_input.clear()
-        self.content_input.clear()
-        self.current_note_id = None
-    
-    def update_note(self):
-        """Сохранение (обновление или создание) заметки"""
-        title = self.title_input.text().strip()
-        content = self.content_input.toPlainText().strip()
-        
-        if not title:
-            QMessageBox.warning(self, "Ошибка", "Заголовок не может быть пустым!")
-            return
-        
-        if self.current_note_id:
-            # Обновление существующей заметки
-            self.cursor.execute(
-                "UPDATE notes SET title=?, content=? WHERE id=?",
-                (title, content, self.current_note_id)
-            )
-        else:
-            # Создание новой заметки
-            self.cursor.execute(
-                "INSERT INTO notes (title, content) VALUES (?, ?)",
-                (title, content)
-            )
-        
-        self.conn.commit()
-        self.load_notes()
-        
-        if not self.current_note_id:
-            self.current_note_id = self.cursor.lastrowid
-            QMessageBox.information(self, "Успех", "Заметка успешно создана!")
-        else:
-            QMessageBox.information(self, "Успех", "Заметка успешно обновлена!")
-    
-    def delete_note(self):
-        """Удаление выбранной заметки"""
-        if not hasattr(self, 'current_note_id') or not self.current_note_id:
-            QMessageBox.warning(self, "Ошибка", "Не выбрана заметка для удаления!")
-            return
-            
-        reply = QMessageBox.question(
-            self, 'Подтверждение',
-            'Вы уверены, что хотите удалить эту заметку?',
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
-        )
-        
-        if reply == QMessageBox.Yes:
-            self.cursor.execute("DELETE FROM notes WHERE id=?", (self.current_note_id,))
-            self.conn.commit()
-            
-            self.title_input.clear()
-            self.content_input.clear()
-            self.current_note_id = None
-            
-            self.load_notes()
-            QMessageBox.information(self, "Успех", "Заметка успешно удалена!")
-    
-    def closeEvent(self, event):
-        """Закрытие соединения с БД при закрытии приложения"""
-        self.conn.close()
-        event.accept()
+con = sqlite3.connect("test.db")
+cursor = con.cursor()
+cursor.execute("""
+    CREATE TABLE IF NOT EXISTS filestest (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        text TEXT,
+        priority INTEGER
+    )
+""")
+try:
+    cursor.execute("INSERT INTO filestest (id, text, priority) VALUES (1, 'namefile', 1)")
+    con.commit()
+except sqlite3.IntegrityError:
+    print("Запись с id=1 уже существует.")
 
-if __name__ == "main":
+def init_ui():
+    window = QWidget()
+    window.setWindowTitle("Приложение для Заметок")
+    window.setGeometry(100, 100, 600, 500)
+
+    layout = QVBoxLayout()
+
+    label = QLabel("Введите текст заметки:")
+    layout.addWidget(label)
+
+    text_edit = QTextEdit()
+    layout.addWidget(text_edit)
+
+    create_button = QPushButton("Создать заметку")
+    create_button.setStyleSheet("background-color: lightgreen; color: black;")
+    create_button.clicked.connect(lambda: create_note(text_edit))
+    layout.addWidget(create_button)
+
+    open_button = QPushButton("Открыть заметку")
+    open_button.setStyleSheet("background-color: lightblue; color: black;")
+    open_button.clicked.connect(lambda: open_note(text_edit))
+    layout.addWidget(open_button)
+
+    save_button = QPushButton("Сохранить заметку")
+    save_button.setStyleSheet("background-color: lightyellow; color: black;")
+    save_button.clicked.connect(lambda: save_note(text_edit))
+    layout.addWidget(save_button)
+
+    add_button = QPushButton("Добавить текст")
+    add_button.setStyleSheet("background-color: lightgrey; color: black;")
+    add_button.clicked.connect(lambda: add_text(text_edit))
+    layout.addWidget(add_button)
+
+    window.setLayout(layout)
+    return window
+
+def create_note(text_edit):
+    filename, _ = QFileDialog.getSaveFileName(None, "Создать заметку", "", "Text Files (*.txt);;All Files (*)")
+    if filename:
+        save_note_to_file(text_edit, filename)
+
+def open_note(text_edit):
+    filename, _ = QFileDialog.getOpenFileName(None, "Открыть заметку", "", "Text Files (*.txt);;All Files (*)")
+    if filename:
+        try:
+            with open(filename, 'r', encoding='utf-8') as file:
+                content = file.read()
+            text_edit.setText(content)
+            text_edit.append(f"\nФайл '{filename}' успешно загружен.")
+        except Exception as e:
+            text_edit.append(f"\nОшибка: Не удалось открыть файл: {e}")
+
+def save_note(text_edit):
+    lines = text_edit.toPlainText().split('\n')
+    if lines:
+        filename = lines[-1].strip() + ".txt"
+        save_note_to_file(text_edit, filename)
+
+def save_note_to_file(text_edit, filename):
+    try:
+        with open(filename, 'w', encoding='utf-8') as file:
+            file.write(text_edit.toPlainText())
+        text_edit.append(f"\nЗаметка сохранена в файл: {filename}")
+    except Exception as e:
+        text_edit.append(f"\nОшибка: Не удалось сохранить файл: {e}")
+
+def add_text(text_edit):
+    new_text = "[Добавленный текст]"
+    text_edit.append(new_text)
+
+if __name__ == "__main__":
     app = QApplication(sys.argv)
-    window = NotesApp()
-    window.show()
+    todo_app = init_ui()
+    todo_app.show()
     sys.exit(app.exec_())
