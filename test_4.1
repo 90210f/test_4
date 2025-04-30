@@ -1,151 +1,183 @@
-import os
-import sqlite3
 import sys
-from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout,
-                             QLabel, QTextEdit, QPushButton,
-                             QFileDialog, QMessageBox, QInputDialog)
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
+                             QHBoxLayout, QListWidget, QPushButton, QLineEdit, 
+                             QTextEdit, QLabel, QMessageBox)
 from PyQt5.QtCore import Qt
+import sqlite3
 
-class NoteApp(QWidget):
-    def __init__(self):
-        super().__init__()
-        self.current_file = None
-        self.db_connect()
-        self.init_ui()
-
-    def db_connect(self):
-        self.con = sqlite3.connect("notes.db")
-        self.cursor = self.con.cursor()
-        self.cursor.execute("""
+class NotesApp(QMainWindow):
+    def init(self):
+        super().init()
+        self.setWindowTitle("Менеджер заметок")
+        self.setGeometry(100, 100, 800, 600)
+        
+        # Инициализация базы данных
+        self.init_db()
+        
+        # Создание виджетов
+        self.create_widgets()
+        
+        # Настройка layout
+        self.setup_layout()
+        
+        # Загрузка заметок
+        self.load_notes()
+        
+    def init_db(self):
+        """Инициализация базы данных SQLite"""
+        self.conn = sqlite3.connect('notes.db')
+        self.cursor = self.conn.cursor()
+        
+        # Создание таблицы, если она не существует
+        self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS notes (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                filename TEXT UNIQUE,
-                content TEXT,
-                priority INTEGER DEFAULT 1
+                title TEXT NOT NULL,
+                content TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
-        """)
-        self.con.commit()
-
-    def init_ui(self):
-        self.setWindowTitle("Приложение для Заметок")
-        self.setGeometry(100, 100, 800, 600)
-
-        layout = QVBoxLayout()
-
-        self.label = QLabel("Редактор заметок")
-        self.label.setAlignment(Qt.AlignCenter)
-        self.label.setStyleSheet("font-size: 16px; font-weight: bold;")
-        layout.addWidget(self.label)
-
-        self.text_edit = QTextEdit()
-        self.text_edit.setPlaceholderText("Введите текст заметки здесь...")
-        layout.addWidget(self.text_edit)
-
-        buttons_layout = QVBoxLayout()
-
-        self.create_button = QPushButton("Создать новую заметку")
-        self.create_button.setStyleSheet("background-color: #4CAF50; color: white;")
-        self.create_button.clicked.connect(self.create_note)
-        buttons_layout.addWidget(self.create_button)
-
-        self.open_button = QPushButton("Открыть заметку")
-        self.open_button.setStyleSheet("background-color: #2196F3; color: white;")
-        self.open_button.clicked.connect(self.open_note)
-        buttons_layout.addWidget(self.open_button)
-
-        self.save_button = QPushButton("Сохранить заметку")
-        self.save_button.setStyleSheet("background-color: #FFC107; color: black;")
-        self.save_button.clicked.connect(self.save_note)
-        buttons_layout.addWidget(self.save_button)
-
-        self.save_as_button = QPushButton("Сохранить как...")
-        self.save_as_button.setStyleSheet("background-color: #FF9800; color: white;")
-        self.save_as_button.clicked.connect(self.save_note_as)
-        buttons_layout.addWidget(self.save_as_button)
-
-        self.add_button = QPushButton("Добавить текст")
-        self.add_button.setStyleSheet("background-color: #9E9E9E; color: white;")
-        self.add_button.clicked.connect(self.add_text)
-        buttons_layout.addWidget(self.add_button)
-
-        layout.addLayout(buttons_layout)
-        self.setLayout(layout)
-
+        ''')
+        self.conn.commit()
+    
+    def create_widgets(self):
+        """Создание всех виджетов интерфейса"""
+        # Список заметок
+        self.notes_list = QListWidget()
+        self.notes_list.itemClicked.connect(self.show_note)
+        
+        # Кнопки управления
+        self.create_btn = QPushButton("Создать заметку")
+        self.create_btn.clicked.connect(self.create_note)
+        
+        self.delete_btn = QPushButton("Удалить заметку")
+        self.delete_btn.clicked.connect(self.delete_note)
+        
+        self.update_btn = QPushButton("Обновить заметку")
+        self.update_btn.clicked.connect(self.update_note)
+        
+        # Поля для редактирования
+        self.title_label = QLabel("Заголовок:")
+        self.title_input = QLineEdit()
+        
+        self.content_label = QLabel("Содержание:")
+        self.content_input = QTextEdit()
+    
+    def setup_layout(self):
+        """Настройка layout приложения"""
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        
+        # Основные layout
+        main_layout = QHBoxLayout()
+        left_layout = QVBoxLayout()
+        right_layout = QVBoxLayout()
+        
+        # Добавление виджетов в левый layout
+        left_layout.addWidget(QLabel("Список заметок:"))
+        left_layout.addWidget(self.notes_list)
+        left_layout.addWidget(self.create_btn)
+        left_layout.addWidget(self.delete_btn)
+        
+        # Добавление виджетов в правый layout
+        right_layout.addWidget(self.title_label)
+        right_layout.addWidget(self.title_input)
+        right_layout.addWidget(self.content_label)
+        right_layout.addWidget(self.content_input)
+        right_layout.addWidget(self.update_btn)
+        
+        # Добавление layout в основной layout
+        main_layout.addLayout(left_layout, 1)
+        main_layout.addLayout(right_layout, 2)
+        
+        central_widget.setLayout(main_layout)
+    
+    def load_notes(self):
+        """Загрузка списка заметок из базы данных"""
+        self.notes_list.clear()
+        self.cursor.execute("SELECT id, title FROM notes ORDER BY created_at DESC")
+        notes = self.cursor.fetchall()
+        
+        for note_id, title in notes:
+            self.notes_list.addItem(f"{note_id}: {title}")
+    
+    def show_note(self, item):
+        """Отображение выбранной заметки"""
+        note_id = int(item.text().split(":")[0])
+        
+        self.cursor.execute("SELECT title, content FROM notes WHERE id=?", (note_id,))
+        title, content = self.cursor.fetchone()
+        
+        self.title_input.setText(title)
+        self.content_input.setText(content)
+        self.current_note_id = note_id
+    
     def create_note(self):
-        filename, _ = QFileDialog.getSaveFileName(
-            self, "Создать новую заметку", 
-            "", "Text Files (*.txt);;All Files (*)")
-        if filename:
-            self.current_file = filename
-            self.text_edit.clear()
-            self.label.setText(f"Редактирование: {os.path.basename(filename)}")
-            self.save_to_db()
-
-    def open_note(self):
-        filename, _ = QFileDialog.getOpenFileName(
-            self, "Открыть заметку", 
-            "", "Text Files (*.txt);;All Files (*)")
-        if filename:
-            try:
-                with open(filename, 'r', encoding='utf-8') as file:
-                    content = file.read()
-                self.text_edit.setText(content)
-                self.current_file = filename
-                self.label.setText(f"Редактирование: {os.path.basename(filename)}")
-                self.save_to_db()
-            except Exception as e:
-                QMessageBox.critical(self, "Ошибка", f"Не удалось открыть файл:\n{e}")
-
-    def save_note(self):
-        if self.current_file:
-            self.save_note_to_file(self.current_file)
+        """Создание новой заметки"""
+        self.title_input.clear()
+        self.content_input.clear()
+        self.current_note_id = None
+    
+    def update_note(self):
+        """Сохранение (обновление или создание) заметки"""
+        title = self.title_input.text().strip()
+        content = self.content_input.toPlainText().strip()
+        
+        if not title:
+            QMessageBox.warning(self, "Ошибка", "Заголовок не может быть пустым!")
+            return
+        
+        if self.current_note_id:
+            # Обновление существующей заметки
+            self.cursor.execute(
+                "UPDATE notes SET title=?, content=? WHERE id=?",
+                (title, content, self.current_note_id)
+            )
         else:
-            self.save_note_as()
-
-    def save_note_as(self):
-        filename, _ = QFileDialog.getSaveFileName(
-            self, "Сохранить заметку как", 
-            "", "Text Files (*.txt);;All Files (*)")
-        if filename:
-            self.current_file = filename
-            self.save_note_to_file(filename)
-            self.label.setText(f"Редактирование: {os.path.basename(filename)}")
-
-    def save_note_to_file(self, filename):
-        try:
-            content = self.text_edit.toPlainText()
-            with open(filename, 'w', encoding='utf-8') as file:
-                file.write(content)
-            self.save_to_db()
-            QMessageBox.information(self, "Успех", "Заметка успешно сохранена!")
-        except Exception as e:
-            QMessageBox.critical(self, "Ошибка", f"Не удалось сохранить файл:\n{e}")
-
-    def add_text(self):
-        text, ok = QInputDialog.getText(
-            self, "Добавить текст", 
-            "Введите текст для добавления:")
-        if ok and text:
-            self.text_edit.append(text)
-
-    def save_to_db(self):
-        if self.current_file:
-            try:
-                content = self.text_edit.toPlainText()
-                self.cursor.execute(
-                    "INSERT OR REPLACE INTO notes (filename, content) VALUES (?, ?)",
-                    (self.current_file, content))
-                self.con.commit()
-            except Exception as e:
-                print(f"Ошибка при сохранении в БД: {e}")
-
+            # Создание новой заметки
+            self.cursor.execute(
+                "INSERT INTO notes (title, content) VALUES (?, ?)",
+                (title, content)
+            )
+        
+        self.conn.commit()
+        self.load_notes()
+        
+        if not self.current_note_id:
+            self.current_note_id = self.cursor.lastrowid
+            QMessageBox.information(self, "Успех", "Заметка успешно создана!")
+        else:
+            QMessageBox.information(self, "Успех", "Заметка успешно обновлена!")
+    
+    def delete_note(self):
+        """Удаление выбранной заметки"""
+        if not hasattr(self, 'current_note_id') or not self.current_note_id:
+            QMessageBox.warning(self, "Ошибка", "Не выбрана заметка для удаления!")
+            return
+            
+        reply = QMessageBox.question(
+            self, 'Подтверждение',
+            'Вы уверены, что хотите удалить эту заметку?',
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+        )
+        
+        if reply == QMessageBox.Yes:
+            self.cursor.execute("DELETE FROM notes WHERE id=?", (self.current_note_id,))
+            self.conn.commit()
+            
+            self.title_input.clear()
+            self.content_input.clear()
+            self.current_note_id = None
+            
+            self.load_notes()
+            QMessageBox.information(self, "Успех", "Заметка успешно удалена!")
+    
     def closeEvent(self, event):
-        self.con.close()
+        """Закрытие соединения с БД при закрытии приложения"""
+        self.conn.close()
         event.accept()
 
-if __name__ == "__main__":
+if __name__ == "main":
     app = QApplication(sys.argv)
-    app.setStyle('Fusion')
-    window = NoteApp()
+    window = NotesApp()
     window.show()
     sys.exit(app.exec_())
