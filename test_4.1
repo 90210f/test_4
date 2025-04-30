@@ -1,97 +1,148 @@
-iimport os
-import sqlite3
 import sys
-from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout,
-                             QLabel, QTextEdit, QPushButton,
-                             QFileDialog)
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
+                             QHBoxLayout, QLabel, QLineEdit, QTextEdit,
+                             QPushButton, QListWidget, QMessageBox)
+import sqlite3
 
-con = sqlite3.connect("test.db")
-cursor = con.cursor()
-cursor.execute("""
-    CREATE TABLE IF NOT EXISTS filestest (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        text TEXT,
-        priority INTEGER
-    )
-""")
-try:
-    cursor.execute("INSERT INTO filestest (id, text, priority) VALUES (1, 'namefile', 1)")
-    con.commit()
-except sqlite3.IntegrityError:
-    print("Запись с id=1 уже существует.")
 
-def init_ui():
-    window = QWidget()
-    window.setWindowTitle("Приложение для Заметок")
-    window.setGeometry(100, 100, 600, 500)
+class NotesApp ( QMainWindow ) :
+    def __init__(self) :
+        super ().__init__ ()
+        self.setWindowTitle ( "Менеджер заметок" )
+        self.setGeometry ( 100, 100, 800, 600 )
 
-    layout = QVBoxLayout()
+        self.conn = sqlite3.connect ( 'notes.db' )
+        self.create_table ()
 
-    label = QLabel("Введите текст заметки:")
-    layout.addWidget(label)
+        self.main_widget = QWidget ()
+        self.setCentralWidget ( self.main_widget )
 
-    text_edit = QTextEdit()
-    layout.addWidget(text_edit)
+        self.init_ui ()
 
-    create_button = QPushButton("Создать заметку")
-    create_button.setStyleSheet("background-color: white; color: black;")
-    create_button.clicked.connect(lambda: create_note(text_edit))
-    layout.addWidget(create_button)
+        self.load_notes ()
 
-    open_button = QPushButton("Открыть заметку")
-    open_button.setStyleSheet("background-color: white; color: black;")
-    open_button.clicked.connect(lambda: open_note(text_edit))
-    layout.addWidget(open_button)
+    def create_table(self) :
+        cursor = self.conn.cursor ()
+        cursor.execute ( '''
+            CREATE TABLE IF NOT EXISTS notes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                content TEXT NOT NULL
+            )
+        ''' )
+        self.conn.commit ()
 
-    save_button = QPushButton("Сохранить заметку")
-    save_button.setStyleSheet("background-color: white; color: black;")
-    save_button.clicked.connect(lambda: save_note(text_edit))
-    layout.addWidget(save_button)
+    def init_ui(self) :
+        # Основной макет
+        layout = QHBoxLayout ()
 
-    add_button = QPushButton("Добавить текст")
-    add_button.setStyleSheet("background-color: white; color: black;")
-    add_button.clicked.connect(lambda: add_text(text_edit))
-    layout.addWidget(add_button)
+        # Левая панель - список заметок
+        self.notes_list = QListWidget ()
+        self.notes_list.itemClicked.connect ( self.show_note )
+        layout.addWidget ( self.notes_list, 1 )
 
-    window.setLayout(layout)
-    return window
+        right_panel = QVBoxLayout ()
 
-def create_note(text_edit):
-    filename, _ = QFileDialog.getSaveFileName(None, "Создать заметку", "", "Text Files (*.txt);;All Files (*)")
-    if filename:
-        save_note_to_file(text_edit, filename)
+        self.title_label = QLabel ( "Заголовок:" )
+        self.title_input = QLineEdit ()
+        right_panel.addWidget ( self.title_label )
+        right_panel.addWidget ( self.title_input )
 
-def open_note(text_edit):
-    filename, _ = QFileDialog.getOpenFileName(None, "Открыть заметку", "", "Text Files (*.txt);;All Files (*)")
-    if filename:
-        try:
-            with open(filename, 'r', encoding='utf-8') as file:
-                content = file.read()
-            text_edit.setText(content)
-            text_edit.append(f"\nФайл '{filename}' успешно загружен.")
-        except Exception as e:
-            text_edit.append(f"\nОшибка: Не удалось открыть файл: {e}")
+        self.content_label = QLabel ( "Содержимое:" )
+        self.content_input = QTextEdit ()
+        right_panel.addWidget ( self.content_label )
+        right_panel.addWidget ( self.content_input )
 
-def save_note(text_edit):
-    lines = text_edit.toPlainText().split('\n')
-    if lines:
-        filename = lines[-1].strip() + ".txt"
-        save_note_to_file(text_edit, filename)
+        buttons_layout = QHBoxLayout ()
 
-def save_note_to_file(text_edit, filename):
-    try:
-        with open(filename, 'w', encoding='utf-8') as file:
-            file.write(text_edit.toPlainText())
-        text_edit.append(f"\nЗаметка сохранена в файл: {filename}")
-    except Exception as e:
-        text_edit.append(f"\nОшибка: Не удалось сохранить файл: {e}")
+        self.new_button = QPushButton ( "Новая заметка" )
+        self.new_button.clicked.connect ( self.new_note )
+        buttons_layout.addWidget ( self.new_button )
 
-def add_text(text_edit):
-    new_text = "[Добавленный текст]"
-    text_edit.append(new_text)
+        self.save_button = QPushButton ( "Сохранить" )
+        self.save_button.clicked.connect ( self.save_note )
+        buttons_layout.addWidget ( self.save_button )
 
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    todo_app = init_ui()
-    todo_app.show()
+        self.delete_button = QPushButton ( "Удалить" )
+        self.delete_button.clicked.connect ( self.delete_note )
+        buttons_layout.addWidget ( self.delete_button )
+
+        right_panel.addLayout ( buttons_layout )
+
+        layout.addLayout ( right_panel, 2 )
+        self.main_widget.setLayout ( layout )
+
+    def load_notes(self) :
+        self.notes_list.clear ()
+        cursor = self.conn.cursor ()
+        cursor.execute ( "SELECT id, title FROM notes" )
+        notes = cursor.fetchall ()
+
+        for note_id, title in notes :
+            self.notes_list.addItem ( f"{note_id}: {title}" )
+
+    def show_note(self, item) :
+        note_id = int ( item.text ().split ( ":" )[0] )
+        cursor = self.conn.cursor ()
+        cursor.execute ( "SELECT title, content FROM notes WHERE id=?", (note_id,) )
+        title, content = cursor.fetchone ()
+
+        self.title_input.setText ( title )
+        self.content_input.setPlainText ( content )
+        self.current_note_id = note_id
+
+    def new_note(self) :
+        self.title_input.clear ()
+        self.content_input.clear ()
+        self.current_note_id = None
+
+    def save_note(self) :
+        title = self.title_input.text ().strip ()
+        content = self.content_input.toPlainText ().strip ()
+
+        if not title :
+            QMessageBox.warning ( self, "Ошибка", "Заголовок не может быть пустым!" )
+            return
+
+        cursor = self.conn.cursor ()
+
+        if self.current_note_id is None :
+            cursor.execute ( "INSERT INTO notes (title, content) VALUES (?, ?)",
+                             (title, content) )
+        else :
+            cursor.execute ( "UPDATE notes SET title=?, content=? WHERE id=?",
+                             (title, content, self.current_note_id) )
+
+        self.conn.commit ()
+        self.load_notes ()
+
+        if self.current_note_id is None :
+            self.current_note_id = cursor.lastrowid
+            self.show_note ( self.notes_list.item ( self.notes_list.count () - 1 ) )
+
+    def delete_note(self) :
+        if self.current_note_id is None :
+            return
+
+        reply = QMessageBox.question ( self, 'Удаление',
+                                       'Вы уверены, что хотите удалить эту заметку?',
+                                       QMessageBox.Yes | QMessageBox.No, QMessageBox.No )
+
+        if reply == QMessageBox.Yes :
+            cursor = self.conn.cursor ()
+            cursor.execute ( "DELETE FROM notes WHERE id=?", (self.current_note_id,) )
+            self.conn.commit ()
+            self.new_note ()
+            self.load_notes ()
+
+    def closeEvent(self, event) :
+        self.conn.close ()
+        event.accept ()
+
+
+if __name__ == "__main__" :
+    app = QApplication(sys.argv )
+    window = NotesApp()
+    window.show()
     sys.exit(app.exec_())
+
