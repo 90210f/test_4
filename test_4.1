@@ -1,4 +1,4 @@
-import os
+iimport os
 import sqlite3
 import sys
 from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout,
@@ -34,22 +34,22 @@ def init_ui():
     layout.addWidget(text_edit)
 
     create_button = QPushButton("Создать заметку")
-    create_button.setStyleSheet("background-color: lightgreen; color: black;")
+    create_button.setStyleSheet("background-color: white; color: black;")
     create_button.clicked.connect(lambda: create_note(text_edit))
     layout.addWidget(create_button)
 
     open_button = QPushButton("Открыть заметку")
-    open_button.setStyleSheet("background-color: lightblue; color: black;")
+    open_button.setStyleSheet("background-color: white; color: black;")
     open_button.clicked.connect(lambda: open_note(text_edit))
     layout.addWidget(open_button)
 
     save_button = QPushButton("Сохранить заметку")
-    save_button.setStyleSheet("background-color: lightyellow; color: black;")
+    save_button.setStyleSheet("background-color: white; color: black;")
     save_button.clicked.connect(lambda: save_note(text_edit))
     layout.addWidget(save_button)
 
     add_button = QPushButton("Добавить текст")
-    add_button.setStyleSheet("background-color: lightgrey; color: black;")
+    add_button.setStyleSheet("background-color: white; color: black;")
     add_button.clicked.connect(lambda: add_text(text_edit))
     layout.addWidget(add_button)
 
